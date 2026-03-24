@@ -145,7 +145,8 @@ def chunked(items: list[Path], size: int) -> list[list[Path]]:
 
 
 def write_classes_file(target: Path, class_names: list[str]) -> None:
-    target.write_text("\n".join(class_names) + "\n", encoding="utf-8", newline="\n")
+    with target.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(class_names) + "\n")
 
 
 def write_data_yaml(target: Path, class_names: list[str]) -> None:
@@ -156,7 +157,8 @@ def write_data_yaml(target: Path, class_names: list[str]) -> None:
         f"nc: {len(class_names)}\n"
         f"names: [{names}]\n"
     )
-    target.write_text(content, encoding="utf-8", newline="\n")
+    with target.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content)
 
 
 def zip_directory(directory: Path, zip_path: Path) -> None:
