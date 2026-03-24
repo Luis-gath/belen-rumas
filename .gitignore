@@ -10,6 +10,7 @@ __pycache__/
 
 roboflow_batches_*/
 _tmp_*/
+descarga-jetson/
 
 rumas-18/
 rumas-18-anotado/
@@ -17,4 +18,3 @@ rumas-18-anotado-95/
 Nueva carpeta/
 
 yolo11*.pt
-

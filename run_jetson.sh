@@ -7,7 +7,10 @@ DEVICE="${DEVICE:-0}"
 PREDICT_BATCH="${PREDICT_BATCH:-4}"
 IMGSZ="${IMGSZ:-960}"
 BATCH_SIZE="${BATCH_SIZE:-50}"
-CONF="${CONF:-0.05}"
+CONF="${CONF:-0.25}"
+IOU="${IOU:-0.45}"
+DEDUPE_IOU="${DEDUPE_IOU:-0.50}"
+DEDUPE_OVERLAP="${DEDUPE_OVERLAP:-0.80}"
 MODEL_PATH="${MODEL_PATH:-$SCRIPT_DIR/models/model_detection.pt}"
 
 if [ "$#" -lt 1 ]; then
@@ -26,5 +29,7 @@ python3 "$SCRIPT_DIR/create_zip.py" \
   --imgsz "$IMGSZ" \
   --batch-size "$BATCH_SIZE" \
   --conf "$CONF" \
+  --iou "$IOU" \
+  --dedupe-iou "$DEDUPE_IOU" \
+  --dedupe-overlap "$DEDUPE_OVERLAP" \
   "$@"
-

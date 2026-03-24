@@ -59,7 +59,10 @@ export DEVICE=0
 export PREDICT_BATCH=4
 export IMGSZ=960
 export BATCH_SIZE=50
-export CONF=0.05
+export CONF=0.25
+export IOU=0.45
+export DEDUPE_IOU=0.50
+export DEDUPE_OVERLAP=0.80
 export OUTPUT_ROOT=/ruta/salida/roboflow_batches
 ./run_jetson.sh /ruta/2026-03-17 /ruta/2026-03-18
 ```
@@ -74,7 +77,10 @@ python3 create_zip.py \
   --predict-batch 4 \
   --imgsz 960 \
   --batch-size 50 \
-  --conf 0.05 \
+  --conf 0.25 \
+  --iou 0.45 \
+  --dedupe-iou 0.50 \
+  --dedupe-overlap 0.80 \
   /ruta/capture_rumas/2026-03-17 \
   /ruta/capture_rumas/2026-03-18
 ```
@@ -82,5 +88,7 @@ python3 create_zip.py \
 ## Notas
 
 - Por defecto el lote es de `50` imagenes.
+- Para preanotado de revision humana, el default de `CONF=0.25` evita mucho ruido frente a `0.05`.
+- Si ves cajas duplicadas, baja `IOU` o sube `DEDUPE_IOU`/`DEDUPE_OVERLAP`.
 - Si la Jetson se queda corta de memoria, baja `PREDICT_BATCH` a `2` y `IMGSZ` a `640`.
 - Las carpetas de imagenes y ZIPs generados no se versionan en Git.

@@ -45,9 +45,12 @@ DEFAULT_MODEL_PATH = (
     else Path(r"D:\Descarga\model_detection (1).pt")
 )
 DEFAULT_BATCH_SIZE = 50
-DEFAULT_CONFIDENCE = 0.05
+DEFAULT_CONFIDENCE = 0.25
 DEFAULT_IMAGE_SIZE = 1280
 DEFAULT_PREDICT_BATCH = 8
+DEFAULT_IOU = 0.45
+DEFAULT_DEDUPE_IOU = 0.50
+DEFAULT_DEDUPE_OVERLAP = 0.80
 
 
 def default_output_root() -> Path:
@@ -96,6 +99,12 @@ def parse_args() -> argparse.Namespace:
         help=f"Tamano de inferencia YOLO. Default: {DEFAULT_IMAGE_SIZE}",
     )
     parser.add_argument(
+        "--iou",
+        type=float,
+        default=DEFAULT_IOU,
+        help=f"IoU para NMS de YOLO. Mas bajo = menos cajas duplicadas. Default: {DEFAULT_IOU}",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
@@ -115,6 +124,24 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Procesa solo las primeras N imagenes. Util para prueba.",
+    )
+    parser.add_argument(
+        "--dedupe-iou",
+        type=float,
+        default=DEFAULT_DEDUPE_IOU,
+        help=(
+            "IoU del filtro extra para quitar duplicados despues de YOLO. "
+            f"Default: {DEFAULT_DEDUPE_IOU}"
+        ),
+    )
+    parser.add_argument(
+        "--dedupe-overlap",
+        type=float,
+        default=DEFAULT_DEDUPE_OVERLAP,
+        help=(
+            "Solapamiento sobre la caja menor para quitar cajas anidadas del mismo objeto. "
+            f"Default: {DEFAULT_DEDUPE_OVERLAP}"
+        ),
     )
     return parser.parse_args()
 
@@ -168,20 +195,95 @@ def zip_directory(directory: Path, zip_path: Path) -> None:
                 archive.write(file_path, file_path.relative_to(directory).as_posix())
 
 
-def write_yolo_label(label_path: Path, result) -> int:
+def compute_intersection(box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]) -> float:
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    return inter_w * inter_h
+
+
+def compute_iou(box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]) -> float:
+    inter_area = compute_intersection(box_a, box_b)
+    if inter_area <= 0.0:
+        return 0.0
+
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    union = area_a + area_b - inter_area
+    if union <= 0.0:
+        return 0.0
+    return inter_area / union
+
+
+def compute_overlap_on_smaller(
+    box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]
+) -> float:
+    inter_area = compute_intersection(box_a, box_b)
+    if inter_area <= 0.0:
+        return 0.0
+
+    area_a = max(0.0, box_a[2] - box_a[0]) * max(0.0, box_a[3] - box_a[1])
+    area_b = max(0.0, box_b[2] - box_b[0]) * max(0.0, box_b[3] - box_b[1])
+    smaller = min(area_a, area_b)
+    if smaller <= 0.0:
+        return 0.0
+    return inter_area / smaller
+
+
+def extract_filtered_detections(result, dedupe_iou: float, dedupe_overlap: float) -> list[tuple[int, float, float, float, float]]:
     boxes = result.boxes
-    detections = 0
+    if boxes is None or len(boxes) == 0:
+        return []
+
+    candidates: list[tuple[int, float, tuple[float, float, float, float]]] = []
+    for box in boxes:
+        x1, y1, x2, y2 = box.xyxy[0].tolist()
+        cls_id = int(box.cls[0].item())
+        conf = float(box.conf[0].item())
+        candidates.append((cls_id, conf, (x1, y1, x2, y2)))
+
+    candidates.sort(key=lambda item: item[1], reverse=True)
+
+    filtered: list[tuple[int, float, tuple[float, float, float, float]]] = []
+    for candidate in candidates:
+        cls_id, _, box_xyxy = candidate
+        is_duplicate = False
+
+        for kept_cls_id, _, kept_box in filtered:
+            if kept_cls_id != cls_id:
+                continue
+
+            if compute_iou(box_xyxy, kept_box) >= dedupe_iou:
+                is_duplicate = True
+                break
+
+            if compute_overlap_on_smaller(box_xyxy, kept_box) >= dedupe_overlap:
+                is_duplicate = True
+                break
+
+        if not is_duplicate:
+            filtered.append(candidate)
+
+    return [(cls_id, *box_xyxy) for cls_id, _, box_xyxy in filtered]
+
+
+def write_yolo_label(
+    label_path: Path, result, dedupe_iou: float, dedupe_overlap: float
+) -> int:
+    detections = extract_filtered_detections(result, dedupe_iou, dedupe_overlap)
 
     with label_path.open("w", encoding="utf-8", newline="\n") as handle:
-        if boxes is None or len(boxes) == 0:
-            return detections
+        if not detections:
+            return 0
 
         img_h, img_w = result.orig_shape
 
-        for box in boxes:
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            cls_id = int(box.cls[0].item())
-
+        for cls_id, x1, y1, x2, y2 in detections:
             x_center = ((x1 + x2) / 2.0) / img_w
             y_center = ((y1 + y2) / 2.0) / img_h
             width = (x2 - x1) / img_w
@@ -190,9 +292,8 @@ def write_yolo_label(label_path: Path, result) -> int:
             handle.write(
                 f"{cls_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n"
             )
-            detections += 1
 
-    return detections
+    return len(detections)
 
 
 def ensure_empty_output_root(output_root: Path) -> None:
@@ -227,9 +328,12 @@ def main() -> None:
     print(f"Salida:       {args.output_root}")
     print(f"Batch size:   {args.batch_size}")
     print(f"Confianza:    {args.conf}")
+    print(f"IoU NMS:      {args.iou}")
     print(f"Image size:   {args.imgsz}")
     print(f"Device:       {args.device or 'auto'}")
     print(f"Pred batch:   {args.predict_batch}")
+    print(f"Dedupe IoU:   {args.dedupe_iou}")
+    print(f"Dedupe Over.: {args.dedupe_overlap}")
     print("-" * 72)
     print("Entradas:")
     for input_dir in input_dirs:
@@ -295,6 +399,7 @@ def main() -> None:
             results = model.predict(
                 source=[str(path) for path in batch_images],
                 conf=args.conf,
+                iou=args.iou,
                 imgsz=args.imgsz,
                 batch=min(args.predict_batch, len(batch_images)),
                 device=args.device,
@@ -320,7 +425,12 @@ def main() -> None:
                     )
 
                 shutil.copy2(image_path, target_image_path)
-                detections = write_yolo_label(target_label_path, result)
+                detections = write_yolo_label(
+                    target_label_path,
+                    result,
+                    dedupe_iou=args.dedupe_iou,
+                    dedupe_overlap=args.dedupe_overlap,
+                )
 
                 batch_detections += detections
                 total_detections += detections
