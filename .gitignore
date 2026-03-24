@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+*.zip
+*.jpg
+*.jpeg
+*.png
+
+roboflow_batches_*/
+_tmp_*/
+
+rumas-18/
+rumas-18-anotado/
+rumas-18-anotado-95/
+Nueva carpeta/
+
+yolo11*.pt
+
