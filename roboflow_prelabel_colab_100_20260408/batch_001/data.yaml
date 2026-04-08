@@ -1,5 +1,0 @@
-train: train/images
-val: train/images
-
-nc: 1
-names: ['ruma']
