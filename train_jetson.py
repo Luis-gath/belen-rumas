@@ -57,9 +57,9 @@ DEFAULT_PROJECT_NAME  = "rumas_custom"
 # ── Configuración Roboflow (Opcional, para descarga automática) ───────────────
 # Pega tus datos aquí si quieres descargar el dataset directamente desde el código.
 ROBOFLOW_API_KEY      = ""            # Pega tu Private API Key aquí (ej: "xyz123abc")
-ROBOFLOW_WORKSPACE    = ""            # Tu espacio de trabajo (ej: "mi-empresa")
-ROBOFLOW_PROJECT      = "belen-rumas" # El nombre de tu proyecto
-ROBOFLOW_VERSION      = 1             # La versión que quieres descargar
+ROBOFLOW_WORKSPACE    = "asdcain-gzzzu" # Tu espacio de trabajo
+ROBOFLOW_PROJECT      = "belen"       # El nombre de tu proyecto
+ROBOFLOW_VERSION      = 5             # La versión que quieres descargar
 
 
 def parse_args() -> argparse.Namespace:
