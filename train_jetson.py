@@ -216,36 +216,44 @@ def resolve_model(model_arg: str) -> str:
     return model_arg
 
 
-def validate_dataset(dataset_dir: Path, data_yaml: Path) -> None:
-    """Verifica que el dataset tenga la estructura correcta."""
+def validate_dataset(dataset_dir: Path) -> Path:
+    """Busca el data.yaml, verifica la estructura y devuelve el directorio real del dataset."""
+    yamls = list(dataset_dir.rglob("data.yaml"))
+    
+    if not yamls:
+        print(f"\n❌ Errores en el dataset:")
+        print(f"   • No se encontró data.yaml dentro de: {dataset_dir}")
+        print(
+            "\n💡 Sugerencia: Primero genera el dataset y asegúrate de que se descargó.\n"
+        )
+        sys.exit(1)
+
+    true_yaml = yamls[0]
+    true_dir = true_yaml.parent
+    
+    # Roboflow a veces usa "valid" en lugar de "val"
+    val_name = "valid" if (true_dir / "valid").exists() else "val"
+    
     errors: list[str] = []
-
-    if not dataset_dir.exists():
-        errors.append(f"La carpeta del dataset no existe: {dataset_dir}")
-    if not data_yaml.exists():
-        errors.append(f"No se encontró data.yaml en: {data_yaml}")
-
-    for split in ("train", "val"):
+    for split in ("train", val_name):
         for sub in ("images", "labels"):
-            path = dataset_dir / split / sub
+            path = true_dir / split / sub
             if not path.exists():
                 errors.append(f"Falta la carpeta: {path}")
 
     if errors:
-        print("\n❌ Errores en el dataset:")
+        print("\n❌ Errores en la estructura del dataset:")
         for err in errors:
             print(f"   • {err}")
-        print(
-            "\n💡 Sugerencia: Primero genera el dataset con:\n"
-            "   ./run_jetson.sh annotate\n"
-            "   Luego sube a Roboflow, descarga con split train/val, y colócalo en ./dataset/"
-        )
         sys.exit(1)
 
     # Contar imágenes
-    train_imgs = list((dataset_dir / "train" / "images").glob("*.*"))
-    val_imgs   = list((dataset_dir / "val" / "images").glob("*.*"))
-    print(f"  ✅ Dataset válido: {len(train_imgs)} imágenes entrenamiento, {len(val_imgs)} validación")
+    train_imgs = list((true_dir / "train" / "images").glob("*.*"))
+    val_imgs   = list((true_dir / val_name / "images").glob("*.*"))
+    print(f"  ✅ Dataset encontrado y válido en: {true_dir}")
+    print(f"  ✅ Imágenes: {len(train_imgs)} en train, {len(val_imgs)} en val/valid")
+    
+    return true_dir
 
 
 def download_roboflow_dataset(api_key: str, workspace: str, project_name: str, version: int, download_dir: Path) -> Path:
@@ -317,12 +325,12 @@ def main() -> None:
         )
 
     # ── 3. Validar dataset ────────────────────────────────────────────────────
-    data_yaml = args.dataset / "data.yaml"
-
     if not args.resume:
         print(f"\n🔍 Validando dataset en: {args.dataset}")
-        validate_dataset(args.dataset, data_yaml)
+        args.dataset = validate_dataset(args.dataset)
+        data_yaml = args.dataset / "data.yaml"
     else:
+        data_yaml = args.dataset / "data.yaml"
         print("\n♻️  Modo RESUME: reanudando entrenamiento anterior...")
 
     # ── 4. Configurar output ──────────────────────────────────────────────────
