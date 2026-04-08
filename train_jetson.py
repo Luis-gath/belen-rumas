@@ -140,6 +140,31 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="Copiar automáticamente el best.pt a models/ al terminar. Default: True",
     )
+    # ── Argumentos Roboflow ───────────────────────────────────────────────────
+    parser.add_argument(
+        "--rf-key",
+        type=str,
+        default=None,
+        help="Roboflow Private API Key para descargar el dataset automáticamente.",
+    )
+    parser.add_argument(
+        "--rf-workspace",
+        type=str,
+        default=None,
+        help="Nombre de tu espacio de trabajo en Roboflow.",
+    )
+    parser.add_argument(
+        "--rf-project",
+        type=str,
+        default=None,
+        help="Nombre de tu proyecto en Roboflow.",
+    )
+    parser.add_argument(
+        "--rf-version",
+        type=int,
+        default=1,
+        help="Número de versión del dataset en Roboflow. Default: 1",
+    )
     return parser.parse_args()
 
 
@@ -216,6 +241,27 @@ def validate_dataset(dataset_dir: Path, data_yaml: Path) -> None:
     print(f"  ✅ Dataset válido: {len(train_imgs)} imágenes entrenamiento, {len(val_imgs)} validación")
 
 
+def download_roboflow_dataset(api_key: str, workspace: str, project_name: str, version: int, download_dir: Path) -> Path:
+    """Descarga el dataset desde Roboflow usando la librería oficial."""
+    try:
+        from roboflow import Roboflow  # noqa: PLC0415
+    except ImportError:
+        print("❌ Para usar integración con Roboflow debes instalar la librería:")
+        print("   pip install roboflow")
+        sys.exit(1)
+
+    print("\n🌐 Conectando con Roboflow...")
+    rf = Roboflow(api_key=api_key)
+    project = rf.workspace(workspace).project(project_name)
+    
+    # Descargar el dataset formato YOLOv11 en un subdirectorio
+    download_dir.mkdir(parents=True, exist_ok=True)
+    dataset = project.version(version).download("yolov11", location=str(download_dir))
+    
+    print(f"✅ Dataset de Roboflow descargado en: {dataset.location}")
+    return Path(dataset.location)
+
+
 def copy_best_model(run_dir: Path, models_dir: Path, run_name: str) -> None:
     """Copia best.pt a la carpeta models/ con nombre descriptivo."""
     best_src = run_dir / "weights" / "best.pt"
@@ -252,6 +298,16 @@ def main() -> None:
     # ── 2. Resolver modelo base ───────────────────────────────────────────────
     print("\n🔍 Resolviendo modelo base...")
     model_path = resolve_model(args.model)
+
+    # ── 2.5 Descarga desde Roboflow (opcional) ────────────────────────────────
+    if args.rf_key and args.rf_workspace and args.rf_project:
+        args.dataset = download_roboflow_dataset(
+            api_key=args.rf_key,
+            workspace=args.rf_workspace,
+            project_name=args.rf_project,
+            version=args.rf_version,
+            download_dir=REPO_ROOT / f"roboflow_{args.rf_project}_v{args.rf_version}"
+        )
 
     # ── 3. Validar dataset ────────────────────────────────────────────────────
     data_yaml = args.dataset / "data.yaml"
