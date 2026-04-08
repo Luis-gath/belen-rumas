@@ -184,6 +184,11 @@ def parse_args() -> argparse.Namespace:
             f"compatibles: {', '.join(ROBOFLOW_AUTO_FORMATS)}. Default: {ROBOFLOW_FORMAT}"
         ),
     )
+    parser.add_argument(
+        "--rf-force-download",
+        action="store_true",
+        help="Forzar una nueva descarga desde Roboflow aunque ya exista el dataset local.",
+    )
     return parser.parse_args()
 
 
@@ -342,8 +347,16 @@ def download_roboflow_dataset(
     version: int,
     download_dir: Path,
     model_format: str,
+    force_download: bool,
 ) -> Path:
     """Descarga el dataset desde Roboflow usando la librería oficial."""
+    if not force_download:
+        dataset_yaml = find_dataset_yaml(download_dir)
+        if dataset_yaml is not None:
+            print(f"\n📦 Usando dataset Roboflow local ya descargado: {dataset_yaml.parent}")
+            print("   Usa --rf-force-download si quieres volver a descargarlo desde Roboflow.")
+            return dataset_yaml.parent
+
     try:
         from roboflow import Roboflow  # noqa: PLC0415
     except ImportError:
@@ -459,6 +472,7 @@ def main() -> None:
             version=args.rf_version,
             download_dir=REPO_ROOT / f"roboflow_{args.rf_project}_v{args.rf_version}",
             model_format=args.rf_format,
+            force_download=args.rf_force_download,
         )
 
     # ── 3. Validar dataset ────────────────────────────────────────────────────
