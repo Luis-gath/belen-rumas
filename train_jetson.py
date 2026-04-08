@@ -48,11 +48,11 @@ DEFAULT_OUTPUT_DIR    = REPO_ROOT / "training_runs"
 DEFAULT_MODEL_BASE    = "yolo11l.pt"   # Large = máxima precisión en Orin
 DEFAULT_EPOCHS        = 100
 DEFAULT_IMGSZ         = 1280           # Alta resolución → mejor detección de rumas
-DEFAULT_BATCH         = 8             # Ajustar si la Orin queda sin memoria (bajar a 4)
+DEFAULT_BATCH         = 4             # Seguro para Jetson; subir a 8 solo si no hay OOM
 DEFAULT_PATIENCE      = 20            # Early-stopping: para si no mejora en 20 épocas
 DEFAULT_LR0           = 0.01
 DEFAULT_LRF           = 0.001
-DEFAULT_WORKERS       = 4
+DEFAULT_WORKERS       = 1             # Evita OOM por prefetch de DataLoader en memoria unificada
 DEFAULT_PROJECT_NAME  = "rumas_custom"
 
 # ── Configuración Roboflow (Opcional, para descarga automática) ───────────────
@@ -101,7 +101,7 @@ def parse_args() -> argparse.Namespace:
         "--batch",
         type=int,
         default=DEFAULT_BATCH,
-        help=f"Batch size. Reduce a 4 si la GPU se queda sin memoria. Default: {DEFAULT_BATCH}",
+        help=f"Batch size. Reduce a 2 si la Jetson termina con 'Killed'. Default: {DEFAULT_BATCH}",
     )
     parser.add_argument(
         "--patience",
@@ -130,7 +130,7 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=DEFAULT_WORKERS,
-        help=f"DataLoader workers. Default: {DEFAULT_WORKERS}",
+        help=f"DataLoader workers. Usa 0-1 en Jetson si el proceso termina con 'Killed'. Default: {DEFAULT_WORKERS}",
     )
     parser.add_argument(
         "--name",
@@ -506,6 +506,7 @@ def main() -> None:
         "patience":   args.patience,
         "device":     device,
         "workers":    args.workers,
+        "cache":      False,      # No cargar imagenes en RAM; Jetson usa memoria unificada
         "project":    str(args.output),
         "name":       args.name,
         "exist_ok":   args.resume,
@@ -513,6 +514,7 @@ def main() -> None:
         # ── Augmentación para mayor precisión con pocos datos ──────────────
         "mosaic":     1.0,       # Combina 4 imágenes (clave con pocos datos)
         "mixup":      0.1,       # Mezcla imágenes suave
+        "close_mosaic": 10,      # Reduce uso de memoria al final del entrenamiento
         "flipud":     0.5,       # Flip vertical
         "fliplr":     0.5,       # Flip horizontal
         "degrees":    15.0,      # Rotación ±15°
@@ -531,6 +533,7 @@ def main() -> None:
         "optimizer":  "AdamW",   # AdamW converge mejor que SGD con pocos datos
         "weight_decay": 0.0005,
         "label_smoothing": 0.1,  # Reduce sobreajuste
+        "amp":        True,      # Menos memoria que FP32; Ultralytics ya valida AMP antes de entrenar
         "plots":      True,      # Genera gráficos de curvas de entrenamiento
         "save":       True,
         "save_period": 10,       # Guardar checkpoint cada 10 épocas
