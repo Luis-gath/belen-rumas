@@ -33,17 +33,13 @@ if hasattr(sys.stdout, "reconfigure"):
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 REPO_ROOT = Path(__file__).resolve().parent
 REPO_MODEL_PATH = REPO_ROOT / "models" / "model_detection.pt"
-DEFAULT_INPUT_DIRS = [
-    Path(r"D:\SUBASTA\minera-belen\iakol_minera_belen_titan_alma_peru\capture_rumas\2026-03-17"),
-    Path(r"D:\SUBASTA\minera-belen\iakol_minera_belen_titan_alma_peru\capture_rumas\2026-03-18"),
-    Path(r"D:\SUBASTA\minera-belen\iakol_minera_belen_titan_alma_peru\capture_rumas\2026-03-19"),
-    Path(r"D:\SUBASTA\minera-belen\iakol_minera_belen_titan_alma_peru\capture_rumas\2026-03-20"),
-]
-DEFAULT_MODEL_PATH = (
-    REPO_MODEL_PATH
-    if REPO_MODEL_PATH.exists()
-    else Path(r"D:\Descarga\model_detection (1).pt")
-)
+DEFAULT_INPUT_DIRS = []
+if (REPO_ROOT / "capture_ruma").exists():
+    DEFAULT_INPUT_DIRS = [REPO_ROOT / "capture_ruma"]
+elif (REPO_ROOT / "rumas-18").exists():
+    DEFAULT_INPUT_DIRS = [REPO_ROOT / "rumas-18"]
+
+DEFAULT_MODEL_PATH = REPO_MODEL_PATH
 DEFAULT_BATCH_SIZE = 50
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_IMAGE_SIZE = 1280
