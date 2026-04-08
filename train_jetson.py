@@ -31,6 +31,7 @@ import argparse
 import os
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 from datetime import datetime
 
@@ -60,6 +61,8 @@ ROBOFLOW_API_KEY      = ""            # Pega tu Private API Key aquí (ej: "xyz1
 ROBOFLOW_WORKSPACE    = "asdcain-gzzzu" # Tu espacio de trabajo
 ROBOFLOW_PROJECT      = "belen"       # El nombre de tu proyecto
 ROBOFLOW_VERSION      = 5             # La versión que quieres descargar
+ROBOFLOW_FORMAT       = "auto"        # auto prueba formatos YOLO compatibles
+ROBOFLOW_AUTO_FORMATS = ("yolov8", "yolov5pytorch", "yolov11", "yolov5")
 
 
 def parse_args() -> argparse.Namespace:
@@ -172,6 +175,15 @@ def parse_args() -> argparse.Namespace:
         default=ROBOFLOW_VERSION,
         help="Número de versión del dataset en Roboflow.",
     )
+    parser.add_argument(
+        "--rf-format",
+        type=str,
+        default=ROBOFLOW_FORMAT,
+        help=(
+            "Formato de exportación Roboflow. Usa 'auto' para probar formatos YOLO "
+            f"compatibles: {', '.join(ROBOFLOW_AUTO_FORMATS)}. Default: {ROBOFLOW_FORMAT}"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -216,15 +228,31 @@ def resolve_model(model_arg: str) -> str:
     return model_arg
 
 
-def validate_dataset(dataset_dir: Path) -> Path:
-    """Busca el data.yaml, verifica la estructura y devuelve el directorio real del dataset."""
-    # Ampliamos la búsqueda a cualquier archivo .yaml o .yml
+def find_dataset_yaml(dataset_dir: Path) -> Path | None:
+    """Busca el YAML del dataset priorizando data.yaml."""
     yamls = list(dataset_dir.rglob("*.yaml")) + list(dataset_dir.rglob("*.yml"))
-    
+
     # Excluir posibles archivos ocultos o irrelevantes, buscar el que se parezca a data.yaml
     yamls = [y for y in yamls if "data" in y.name.lower() or "dataset" in y.name.lower()]
 
     if not yamls:
+        return None
+
+    yamls.sort(
+        key=lambda y: (
+            y.name.lower() != "data.yaml",
+            len(y.relative_to(dataset_dir).parts),
+            str(y).lower(),
+        )
+    )
+    return yamls[0]
+
+
+def validate_dataset(dataset_dir: Path) -> Path:
+    """Busca el data.yaml, verifica la estructura y devuelve el directorio real del dataset."""
+    true_yaml = find_dataset_yaml(dataset_dir)
+
+    if true_yaml is None:
         print(f"\n❌ Errores en el dataset:")
         print(f"   • No se encontró un archivo data.yaml dentro de: {dataset_dir}")
         print(
@@ -232,7 +260,6 @@ def validate_dataset(dataset_dir: Path) -> Path:
         )
         sys.exit(1)
 
-    true_yaml = yamls[0]
     true_dir = true_yaml.parent
     
     # Roboflow a veces usa "valid" en lugar de "val"
@@ -260,7 +287,56 @@ def validate_dataset(dataset_dir: Path) -> Path:
     return true_dir
 
 
-def download_roboflow_dataset(api_key: str, workspace: str, project_name: str, version: int, download_dir: Path) -> Path:
+def roboflow_formats_to_try(requested_format: str) -> list[str]:
+    """Devuelve los formatos Roboflow a probar."""
+    requested = requested_format.strip()
+    if not requested or requested.lower() == "auto":
+        return list(ROBOFLOW_AUTO_FORMATS)
+    return [requested]
+
+
+def preview_directory(root: Path, max_entries: int = 20) -> str:
+    """Muestra una vista corta de la carpeta para diagnosticar descargas vacias."""
+    if not root.exists():
+        return f"      {root} no existe"
+
+    entries = sorted(root.rglob("*"), key=lambda path: str(path).lower())
+    if not entries:
+        return "      (carpeta vacia)"
+
+    lines = []
+    for path in entries[:max_entries]:
+        suffix = "/" if path.is_dir() else ""
+        lines.append(f"      - {path.relative_to(root)}{suffix}")
+    if len(entries) > max_entries:
+        lines.append(f"      ... {len(entries) - max_entries} archivos/carpetas mas")
+    return "\n".join(lines)
+
+
+def extract_zip_artifacts(root: Path) -> None:
+    """Extrae ZIPs que Roboflow haya dejado sin desempaquetar."""
+    if not root.exists():
+        return
+
+    for zip_path in sorted(root.rglob("*.zip"), key=lambda path: str(path).lower()):
+        extract_dir = zip_path.with_suffix("")
+        if find_dataset_yaml(extract_dir):
+            continue
+
+        print(f"  ℹ️  Se encontró un ZIP sin extraer. Extrayendo: {zip_path.name}")
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path) as archive:
+            archive.extractall(extract_dir)
+
+
+def download_roboflow_dataset(
+    api_key: str,
+    workspace: str,
+    project_name: str,
+    version: int,
+    download_dir: Path,
+    model_format: str,
+) -> Path:
     """Descarga el dataset desde Roboflow usando la librería oficial."""
     try:
         from roboflow import Roboflow  # noqa: PLC0415
@@ -272,18 +348,53 @@ def download_roboflow_dataset(api_key: str, workspace: str, project_name: str, v
     print("\n🌐 Conectando con Roboflow...")
     rf = Roboflow(api_key=api_key)
     project = rf.workspace(workspace).project(project_name)
-    
-    # Limpiar carpeta si ya existe (para evitar que Roboflow salte la descarga creyéndola lista)
-    if download_dir.exists():
-        import shutil
-        shutil.rmtree(download_dir, ignore_errors=True)
-    
-    # Descargar el dataset formato YOLOv11 en un subdirectorio
-    download_dir.mkdir(parents=True, exist_ok=True)
-    dataset = project.version(version).download("yolov11", location=str(download_dir))
-    
-    print(f"✅ Dataset de Roboflow descargado en: {dataset.location}")
-    return Path(dataset.location)
+    version_obj = project.version(version)
+    failures: list[str] = []
+
+    for model_format_candidate in roboflow_formats_to_try(model_format):
+        print(f"  ↳ Descargando formato Roboflow: {model_format_candidate}")
+
+        # Limpiar carpeta si ya existe para evitar que Roboflow reutilice una descarga incompleta.
+        if download_dir.exists():
+            shutil.rmtree(download_dir, ignore_errors=True)
+
+        download_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            dataset = version_obj.download(model_format_candidate, location=str(download_dir))
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{model_format_candidate}: {exc}")
+            continue
+
+        dataset_path = Path(getattr(dataset, "location", download_dir))
+        search_roots = [dataset_path]
+        if download_dir != dataset_path:
+            search_roots.append(download_dir)
+
+        for root in search_roots:
+            extract_zip_artifacts(root)
+
+        for root in search_roots:
+            dataset_yaml = find_dataset_yaml(root)
+            if dataset_yaml is not None:
+                print(f"✅ Dataset de Roboflow descargado en: {dataset_path}")
+                print(f"  ✅ YAML encontrado: {dataset_yaml}")
+                return dataset_yaml.parent
+
+        failures.append(
+            f"{model_format_candidate}: descarga sin data.yaml. Contenido de {download_dir}:\n"
+            f"{preview_directory(download_dir)}"
+        )
+
+    print("\n❌ Roboflow descargó una carpeta, pero no encontré data.yaml.")
+    print("   Intentos realizados:")
+    for failure in failures:
+        print(f"   • {failure}")
+    print(
+        "\n💡 En Roboflow, genera/descarga la versión como YOLOv8 PyTorch o YOLOv5 PyTorch. "
+        "YOLO11 usa la misma estructura de dataset para entrenar con Ultralytics."
+    )
+    sys.exit(1)
 
 
 def copy_best_model(run_dir: Path, models_dir: Path, run_name: str) -> None:
@@ -330,16 +441,20 @@ def main() -> None:
             workspace=args.rf_workspace,
             project_name=args.rf_project,
             version=args.rf_version,
-            download_dir=REPO_ROOT / f"roboflow_{args.rf_project}_v{args.rf_version}"
+            download_dir=REPO_ROOT / f"roboflow_{args.rf_project}_v{args.rf_version}",
+            model_format=args.rf_format,
         )
 
     # ── 3. Validar dataset ────────────────────────────────────────────────────
     if not args.resume:
         print(f"\n🔍 Validando dataset en: {args.dataset}")
         args.dataset = validate_dataset(args.dataset)
-        data_yaml = args.dataset / "data.yaml"
+        data_yaml = find_dataset_yaml(args.dataset)
+        if data_yaml is None:
+            print(f"❌ No se encontró data.yaml en: {args.dataset}")
+            sys.exit(1)
     else:
-        data_yaml = args.dataset / "data.yaml"
+        data_yaml = find_dataset_yaml(args.dataset) or (args.dataset / "data.yaml")
         print("\n♻️  Modo RESUME: reanudando entrenamiento anterior...")
 
     # ── 4. Configurar output ──────────────────────────────────────────────────
