@@ -208,24 +208,30 @@ def resolve_model(model_arg: str) -> str:
     """
     Resuelve la ruta del modelo base.
     Prioridad:
-      1. Si existe en models/ del repo → lo usa como fine-tuning
-      2. Si es un nombre de modelo YOLO estándar → ultralytics lo descarga
+      1. Si existe como ruta directa o en models/ del repo → lo usa como fine-tuning
+      2. Si es un nombre oficial YOLO → Ultralytics lo descarga
+      3. Si no existe → falla de forma explícita; no usa otro modelo local silenciosamente
     """
+    direct_path = Path(model_arg)
+    if direct_path.exists():
+        print(f"  ✅ Usando modelo local indicado: {direct_path}")
+        return str(direct_path)
+
     local_path = REPO_ROOT / "models" / model_arg
     if local_path.exists():
         print(f"  ✅ Usando modelo local: {local_path}")
         return str(local_path)
 
-    # Buscar cualquier .pt en models/ como alternativa
-    models_dir = REPO_ROOT / "models"
-    available_pts = sorted(models_dir.glob("*.pt"))
-    if available_pts:
-        best_local = available_pts[-1]
-        print(f"  ℹ️  '{model_arg}' no encontrado. Usando modelo local: {best_local.name}")
-        return str(best_local)
+    model_name = Path(model_arg).name.lower()
+    is_plain_name = model_name == model_arg.lower()
+    if is_plain_name and model_name.startswith("yolo") and model_name.endswith(".pt"):
+        print(f"  ℹ️  '{model_arg}' no está en models/. Ultralytics lo descargará como modelo oficial.")
+        return model_arg
 
-    print(f"  ℹ️  Usando modelo base público: {model_arg} (se descargará si es necesario)")
-    return model_arg
+    print(f"  ❌ No se encontró el modelo solicitado: {model_arg}")
+    print(f"     Esperaba una ruta existente o un archivo dentro de: {REPO_ROOT / 'models'}")
+    print("     Ejemplo recomendado para máxima precisión controlada: --model yolo11l.pt")
+    sys.exit(1)
 
 
 def find_dataset_yaml(dataset_dir: Path) -> Path | None:
