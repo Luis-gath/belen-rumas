@@ -218,13 +218,17 @@ def resolve_model(model_arg: str) -> str:
 
 def validate_dataset(dataset_dir: Path) -> Path:
     """Busca el data.yaml, verifica la estructura y devuelve el directorio real del dataset."""
-    yamls = list(dataset_dir.rglob("data.yaml"))
+    # Ampliamos la búsqueda a cualquier archivo .yaml o .yml
+    yamls = list(dataset_dir.rglob("*.yaml")) + list(dataset_dir.rglob("*.yml"))
     
+    # Excluir posibles archivos ocultos o irrelevantes, buscar el que se parezca a data.yaml
+    yamls = [y for y in yamls if "data" in y.name.lower() or "dataset" in y.name.lower()]
+
     if not yamls:
         print(f"\n❌ Errores en el dataset:")
-        print(f"   • No se encontró data.yaml dentro de: {dataset_dir}")
+        print(f"   • No se encontró un archivo data.yaml dentro de: {dataset_dir}")
         print(
-            "\n💡 Sugerencia: Primero genera el dataset y asegúrate de que se descargó.\n"
+            "\n💡 Sugerencia: Elimina la carpeta y vuelve a intentar para forzar la descarga.\n"
         )
         sys.exit(1)
 
@@ -268,6 +272,11 @@ def download_roboflow_dataset(api_key: str, workspace: str, project_name: str, v
     print("\n🌐 Conectando con Roboflow...")
     rf = Roboflow(api_key=api_key)
     project = rf.workspace(workspace).project(project_name)
+    
+    # Limpiar carpeta si ya existe (para evitar que Roboflow salte la descarga creyéndola lista)
+    if download_dir.exists():
+        import shutil
+        shutil.rmtree(download_dir, ignore_errors=True)
     
     # Descargar el dataset formato YOLOv11 en un subdirectorio
     download_dir.mkdir(parents=True, exist_ok=True)
