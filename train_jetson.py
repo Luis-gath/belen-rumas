@@ -54,6 +54,13 @@ DEFAULT_LRF           = 0.001
 DEFAULT_WORKERS       = 4
 DEFAULT_PROJECT_NAME  = "rumas_custom"
 
+# ── Configuración Roboflow (Opcional, para descarga automática) ───────────────
+# Pega tus datos aquí si quieres descargar el dataset directamente desde el código.
+ROBOFLOW_API_KEY      = ""            # Pega tu Private API Key aquí (ej: "xyz123abc")
+ROBOFLOW_WORKSPACE    = ""            # Tu espacio de trabajo (ej: "mi-empresa")
+ROBOFLOW_PROJECT      = "belen-rumas" # El nombre de tu proyecto
+ROBOFLOW_VERSION      = 1             # La versión que quieres descargar
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -144,26 +151,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--rf-key",
         type=str,
-        default=None,
+        default=ROBOFLOW_API_KEY,
         help="Roboflow Private API Key para descargar el dataset automáticamente.",
     )
     parser.add_argument(
         "--rf-workspace",
         type=str,
-        default=None,
+        default=ROBOFLOW_WORKSPACE,
         help="Nombre de tu espacio de trabajo en Roboflow.",
     )
     parser.add_argument(
         "--rf-project",
         type=str,
-        default=None,
+        default=ROBOFLOW_PROJECT,
         help="Nombre de tu proyecto en Roboflow.",
     )
     parser.add_argument(
         "--rf-version",
         type=int,
-        default=1,
-        help="Número de versión del dataset en Roboflow. Default: 1",
+        default=ROBOFLOW_VERSION,
+        help="Número de versión del dataset en Roboflow.",
     )
     return parser.parse_args()
 
