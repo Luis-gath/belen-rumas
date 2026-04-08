@@ -81,7 +81,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_MODEL_BASE,
         help=(
             f"Modelo base YOLO a usar (yolo11n.pt/m/l/x). "
-            f"Si existe en models/, lo usa como punto de partida. "
+            f"Los nombres yolo*.pt se descargan desde Ultralytics. "
             f"Default: {DEFAULT_MODEL_BASE}"
         ),
     )
@@ -208,28 +208,28 @@ def resolve_model(model_arg: str) -> str:
     """
     Resuelve la ruta del modelo base.
     Prioridad:
-      1. Si existe como ruta directa o en models/ del repo → lo usa como fine-tuning
-      2. Si es un nombre oficial YOLO → Ultralytics lo descarga
-      3. Si no existe → falla de forma explícita; no usa otro modelo local silenciosamente
+      1. Si es un nombre oficial yolo*.pt → Ultralytics lo descarga
+      2. Si es una ruta explicita existente → la usa como fine-tuning
+      3. Si no existe → falla de forma explicita; no usa otro modelo local silenciosamente
     """
-    direct_path = Path(model_arg)
-    if direct_path.exists():
-        print(f"  ✅ Usando modelo local indicado: {direct_path}")
-        return str(direct_path)
-
-    local_path = REPO_ROOT / "models" / model_arg
-    if local_path.exists():
-        print(f"  ✅ Usando modelo local: {local_path}")
-        return str(local_path)
-
     model_name = Path(model_arg).name.lower()
-    is_plain_name = model_name == model_arg.lower()
+    is_plain_name = model_name == model_arg.lower() and "/" not in model_arg and "\\" not in model_arg
     if is_plain_name and model_name.startswith("yolo") and model_name.endswith(".pt"):
-        print(f"  ℹ️  '{model_arg}' no está en models/. Ultralytics lo descargará como modelo oficial.")
+        print(f"  ✅ Usando modelo oficial Ultralytics: {model_arg}")
         return model_arg
 
+    if is_plain_name:
+        print(f"  ❌ No usaré el modelo local por nombre: {model_arg}")
+        print("     Para máxima precisión usa: --model yolo11l.pt")
+        print("     Si realmente quieres un .pt local, pásalo como ruta explícita: --model models/archivo.pt")
+        sys.exit(1)
+
+    direct_path = Path(model_arg)
+    if direct_path.exists():
+        print(f"  ✅ Usando modelo local indicado explícitamente: {direct_path}")
+        return str(direct_path)
+
     print(f"  ❌ No se encontró el modelo solicitado: {model_arg}")
-    print(f"     Esperaba una ruta existente o un archivo dentro de: {REPO_ROOT / 'models'}")
     print("     Ejemplo recomendado para máxima precisión controlada: --model yolo11l.pt")
     sys.exit(1)
 
