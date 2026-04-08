@@ -355,13 +355,23 @@ def download_roboflow_dataset(
         print(f"  ↳ Descargando formato Roboflow: {model_format_candidate}")
 
         # Limpiar carpeta si ya existe para evitar que Roboflow reutilice una descarga incompleta.
+        # Importante: version.download() retorna sin descargar si location ya existe
+        # y overwrite=False, incluso si la carpeta esta vacia.
         if download_dir.exists():
-            shutil.rmtree(download_dir, ignore_errors=True)
+            shutil.rmtree(download_dir)
 
-        download_dir.mkdir(parents=True, exist_ok=True)
+        download_dir.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            dataset = version_obj.download(model_format_candidate, location=str(download_dir))
+            try:
+                dataset = version_obj.download(
+                    model_format_candidate,
+                    location=str(download_dir),
+                    overwrite=True,
+                )
+            except TypeError:
+                # Compatibilidad con SDKs antiguos que no aceptan overwrite.
+                dataset = version_obj.download(model_format_candidate, location=str(download_dir))
         except Exception as exc:  # noqa: BLE001
             failures.append(f"{model_format_candidate}: {exc}")
             continue
